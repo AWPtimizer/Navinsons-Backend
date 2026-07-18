@@ -9,12 +9,14 @@ cloudinary.config({
 
 // Uploads a Buffer (from multer's memory storage — nothing touches disk)
 // straight to Cloudinary via its streaming API, returns the public URL to
-// store on the record. Images live in Cloudinary's free tier (25GB), not
-// in Mongo — Atlas's 512MB total quota would be gone in days otherwise.
+// store on the record. Images/PDFs live in Cloudinary's free tier (25GB),
+// not in Mongo — Atlas's 512MB total quota would be gone in days otherwise.
+// resource_type 'auto' (not 'image') so this accepts PDFs too, not just
+// actual image formats.
 export const uploadImageBuffer = (buffer: Buffer, folder: string): Promise<string> =>
   new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
-      { folder, resource_type: 'image' },
+      { folder, resource_type: 'auto' },
       (error, result) => {
         if (error || !result) return reject(error ?? new Error('Cloudinary upload returned no result'));
         resolve(result.secure_url);
