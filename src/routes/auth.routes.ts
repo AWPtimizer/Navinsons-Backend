@@ -56,7 +56,16 @@ router.post(
 );
 
 router.post('/logout', (_req, res) => {
-  res.clearCookie('token');
+  // Must match the options the cookie was set with in /login exactly —
+  // browsers only treat this as clearing the *same* cookie when httpOnly/
+  // secure/sameSite line up. A mismatched clearCookie() call silently does
+  // nothing, leaving the real session cookie valid (which is why logging
+  // out didn't actually log you out anywhere else, e.g. a new tab).
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? 'none' : 'lax',
+  });
   res.json({ message: 'Logged out' });
 });
 
