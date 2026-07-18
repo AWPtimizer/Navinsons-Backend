@@ -41,5 +41,9 @@ challanSchema.index({ _challanKeywords: 1 });
 challanSchema.index({ challanNo: 1 });
 challanSchema.index({ customerId: 1 });
 challanSchema.index({ createdAt: -1 });
+// Covers the plain (non-search) list and GET /download's isActive filter +
+// sort({ createdAt: -1 }) in one index pass instead of an isActive-only
+// lookup followed by an in-memory sort of thousands of records.
+challanSchema.index({ isActive: 1, createdAt: -1 });
 
 export const Challan = model<IChallan>('Challan', challanSchema);

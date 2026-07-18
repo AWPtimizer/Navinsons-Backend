@@ -31,5 +31,8 @@ const transporterSchema = new Schema<ITransporter>({
 transporterSchema.index({ isActive: 1 });
 transporterSchema.index({ _searchKeywords: 1 });
 transporterSchema.index({ _transporterName: 1 });
+// Covers GET /download's isActive filter + sort({ transporterName: 1 }) in
+// one index pass — transporterName itself had no index at all before this.
+transporterSchema.index({ isActive: 1, transporterName: 1 });
 
 export const Transporter = model<ITransporter>('Transporter', transporterSchema);

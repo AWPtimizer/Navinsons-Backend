@@ -33,5 +33,8 @@ inwardSchema.index({ isActive: 1 });
 inwardSchema.index({ vendorId: 1 });
 inwardSchema.index({ transporterId: 1 });
 inwardSchema.index({ createdAt: -1 });
+// Covers the plain list and GET /download's isActive filter +
+// sort({ createdAt: -1 }) in one index pass.
+inwardSchema.index({ isActive: 1, createdAt: -1 });
 
 export const Inward = model<IInward>('Inward', inwardSchema);

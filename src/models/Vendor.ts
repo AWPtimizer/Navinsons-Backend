@@ -32,5 +32,8 @@ const vendorSchema = new Schema<IVendor>({
 vendorSchema.index({ isActive: 1 });
 vendorSchema.index({ _searchKeywords: 1 });
 vendorSchema.index({ _vendorName: 1 });
+// Covers GET /download's isActive filter + sort({ vendorName: 1 }) in one
+// index pass — vendorName itself had no index at all before this.
+vendorSchema.index({ isActive: 1, vendorName: 1 });
 
 export const Vendor = model<IVendor>('Vendor', vendorSchema);

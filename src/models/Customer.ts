@@ -50,5 +50,9 @@ customerSchema.index({ _searchKeywords: 1 });
 customerSchema.index({ contactNo: 1 });
 customerSchema.index({ alternateNo: 1 });
 customerSchema.index({ _customerName: 1 });
+// Covers GET /download's isActive filter + sort({ customerName: 1 }) in one
+// index pass instead of an isActive-only lookup followed by an in-memory
+// sort of every active record (customerName itself had no index at all).
+customerSchema.index({ isActive: 1, customerName: 1 });
 
 export const Customer = model<ICustomer>('Customer', customerSchema);

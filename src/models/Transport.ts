@@ -55,5 +55,8 @@ transportSchema.index({ transporterId: 1 });
 transportSchema.index({ branchId: 1 });
 transportSchema.index({ createdAt: -1 });
 transportSchema.index({ whatsappMessageId: 1 });
+// Covers GET /download's isActive filter + sort({ date: -1 }) in one index
+// pass — date itself had no index at all before this.
+transportSchema.index({ isActive: 1, date: -1 });
 
 export const Transport = model<ITransport>('Transport', transportSchema);
