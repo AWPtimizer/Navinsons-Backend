@@ -2,3 +2,7 @@ node_modules/
 .env
 dist/
 *.log
+
+# One-time migration snapshots — real customer PII, regenerable any time by
+# re-running export-for-migration.js against the old Firebase backend.
+migration-data/

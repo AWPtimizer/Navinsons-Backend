@@ -17,7 +17,13 @@ import { Counter } from '../models/Counter.js';
 
 const DATA_DIR = path.join(process.cwd(), 'migration-data');
 
-const BRANCH_PREFIX: Record<string, string> = { bhuleshwar: 'BH', 'masjid-bunder': 'MB' };
+// Must match routes/challans.routes.ts exactly — real historical challan
+// numbers continue "NS-####" for bhuleshwar and "LLP-###" for masjid-bunder.
+// (An earlier BH/MB placeholder here silently zeroed out every branch's
+// counter on import, since it couldn't parse a number out of "NS-2669" by
+// stripping "BH" from it — see fixChallanCounters.ts for the one-time
+// correction that was needed because of it.)
+const BRANCH_PREFIX: Record<string, string> = { bhuleshwar: 'NS', 'masjid-bunder': 'LLP' };
 
 // Recursively turns any ISO date string produced by the export step back
 // into a real JS Date, so Mongo stores it natively instead of as a string.
@@ -80,8 +86,11 @@ const run = async () => {
   const branchMax: Record<string, number> = {};
   for (const c of challans) {
     const branchId = String(c.branchId ?? '');
-    const prefix = BRANCH_PREFIX[branchId] ?? branchId.slice(0, 2).toUpperCase();
-    const num = Number(String(c.challanNo ?? '').replace(prefix, '')) || 0;
+    // Same robust digit-stripping as maxCustomerNum above — a plain
+    // .replace(prefix, '') on "NS-2669" leaves a stray hyphen behind
+    // ("-2669"), which parses as a negative number and silently floors
+    // the counter back to 0.
+    const num = Number(String(c.challanNo ?? '').replace(/\D/g, '')) || 0;
     branchMax[branchId] = Math.max(branchMax[branchId] ?? 0, num);
   }
   for (const [branchId, count] of Object.entries(branchMax)) {
