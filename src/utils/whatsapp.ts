@@ -19,19 +19,21 @@ export const branchSpecificData: Record<
   },
 };
 
-interface SendArgs {
-  phoneNo: string;
-  lrNo: string;
-  transportName: string;
-  transportPhoneNo: string;
+interface TemplateComponent {
+  type: 'body';
+  parameters: { type: 'text'; parameter_name: string; text: string }[];
 }
 
-// Same dev safety net we built for the old backend, ported as-is: while
-// WHATSAPP_TEST_OVERRIDE_NUMBER is set (only meant for local dev — leave
-// blank in production), every send redirects there instead of the real
-// recipient, so testing this flow can never message a real customer.
-export const sendWhatsAppMessage = async (data: SendArgs, branchId: string) => {
-  const { phoneNo, lrNo, transportName, transportPhoneNo } = data;
+// Shared by every WhatsApp send: applies the dev safety net (redirects to
+// WHATSAPP_TEST_OVERRIDE_NUMBER while set, so local testing can never
+// message a real customer/vendor) and posts to the Graph API. Callers only
+// need to supply the template name/language/params for their own message.
+const postWhatsAppTemplate = async (
+  phoneNo: string,
+  templateName: string,
+  languageCode: string,
+  components: TemplateComponent[]
+) => {
   const recipientNo = env.whatsappTestOverrideNumber || phoneNo;
   if (env.whatsappTestOverrideNumber && phoneNo !== env.whatsappTestOverrideNumber) {
     console.log(`[TEST OVERRIDE] Redirecting WhatsApp send from ${phoneNo} to ${env.whatsappTestOverrideNumber}`);
@@ -42,18 +44,9 @@ export const sendWhatsAppMessage = async (data: SendArgs, branchId: string) => {
     to: `91${recipientNo}`,
     type: 'template',
     template: {
-      name: branchId === 'bhuleshwar' ? 'outward_message' : 'masjid_bunder_outward_message',
-      language: { code: branchId === 'bhuleshwar' ? 'en' : 'en_US' },
-      components: [
-        {
-          type: 'body',
-          parameters: [
-            { type: 'text', parameter_name: 'lr_no', text: lrNo },
-            { type: 'text', parameter_name: 'transport_name', text: transportName },
-            { type: 'text', parameter_name: 'transport_phone_no', text: `91 ${transportPhoneNo}` },
-          ],
-        },
-      ],
+      name: templateName,
+      language: { code: languageCode },
+      components,
     },
   };
 
@@ -68,4 +61,58 @@ export const sendWhatsAppMessage = async (data: SendArgs, branchId: string) => {
     console.error('Error while sending WhatsApp message:', error);
     return { error: 'Failed to send WhatsApp message' };
   }
+};
+
+interface SendArgs {
+  phoneNo: string;
+  lrNo: string;
+  transportName: string;
+  transportPhoneNo: string;
+}
+
+export const sendWhatsAppMessage = (data: SendArgs, branchId: string) => {
+  const { phoneNo, lrNo, transportName, transportPhoneNo } = data;
+  return postWhatsAppTemplate(
+    phoneNo,
+    branchId === 'bhuleshwar' ? 'outward_message' : 'masjid_bunder_outward_message',
+    branchId === 'bhuleshwar' ? 'en' : 'en_US',
+    [
+      {
+        type: 'body',
+        parameters: [
+          { type: 'text', parameter_name: 'lr_no', text: lrNo },
+          { type: 'text', parameter_name: 'transport_name', text: transportName },
+          { type: 'text', parameter_name: 'transport_phone_no', text: `91 ${transportPhoneNo}` },
+        ],
+      },
+    ]
+  );
+};
+
+interface PaymentReminderArgs {
+  phoneNo: string;
+  customerName: string;
+  outstandingAmount: string;
+}
+
+// Requires a new Meta-approved template per branch (e.g. "payment_reminder" /
+// "masjid_bunder_payment_reminder") — same external approval prerequisite as
+// every other WhatsApp template this app uses; not something we control the
+// timeline on.
+export const sendPaymentReminderWhatsAppMessage = (data: PaymentReminderArgs, branchId: string) => {
+  const { phoneNo, customerName, outstandingAmount } = data;
+  return postWhatsAppTemplate(
+    phoneNo,
+    branchId === 'bhuleshwar' ? 'payment_reminder' : 'masjid_bunder_payment_reminder',
+    branchId === 'bhuleshwar' ? 'en' : 'en_US',
+    [
+      {
+        type: 'body',
+        parameters: [
+          { type: 'text', parameter_name: 'customer_name', text: customerName },
+          { type: 'text', parameter_name: 'outstanding_amount', text: outstandingAmount },
+        ],
+      },
+    ]
+  );
 };

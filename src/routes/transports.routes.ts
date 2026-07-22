@@ -59,49 +59,57 @@ router.post(
   })
 );
 
+// Shared by the list and download endpoints so a filter can never drift
+// between what's shown on screen and what gets exported.
+const buildListFilter = async (req: { query: Record<string, unknown> }) => {
+  const isAdmin = req.query.admin === 'true';
+  const branchId = req.query.branchId as string | undefined;
+  const search = (req.query.search as string | undefined)?.trim().toLowerCase();
+  const dateFrom = req.query.dateFrom as string | undefined;
+  const dateTo = req.query.dateTo as string | undefined;
+  const transporterId = req.query.transporterId as string | undefined;
+
+  const filter: Record<string, unknown> = { isActive: true };
+
+  // Outward records have no name of their own to search — the old app
+  // resolves the search term against Customers first, then Transporters,
+  // and filters transports by whichever one matched. Ported as-is.
+  if (search) {
+    const matchingCustomers = await Customer.find({ isActive: true, _searchKeywords: search })
+      .select('_id')
+      .lean();
+    if (matchingCustomers.length > 0) {
+      filter.customerId = { $in: matchingCustomers.map((c) => c._id) };
+    } else {
+      const matchingTransporters = await Transporter.find({ isActive: true, _searchKeywords: search })
+        .select('_id')
+        .lean();
+      filter.transporterId =
+        matchingTransporters.length > 0 ? { $in: matchingTransporters.map((t) => t._id) } : null;
+    }
+  }
+
+  if (!isAdmin && branchId) filter.branchId = branchId;
+  // Explicit filter dropdown takes priority over whatever the search box
+  // may have derived for transporterId above.
+  if (transporterId) filter.transporterId = transporterId;
+  if (dateFrom || dateTo) {
+    filter.date = {
+      ...(dateFrom ? { $gte: dateFrom } : {}),
+      ...(dateTo ? { $lte: dateTo } : {}),
+    };
+  }
+
+  return filter;
+};
+
 router.get(
   '/',
   asyncHandler(async (req, res) => {
     const page = Number(req.query.page ?? 1);
     const size = Number(req.query.size ?? 10);
-    const isAdmin = req.query.admin === 'true';
-    const branchId = req.query.branchId as string | undefined;
-    const search = (req.query.search as string | undefined)?.trim().toLowerCase();
-    const dateFrom = req.query.dateFrom as string | undefined;
-    const dateTo = req.query.dateTo as string | undefined;
-    const transporterId = req.query.transporterId as string | undefined;
 
-    const filter: Record<string, unknown> = { isActive: true };
-
-    // Outward records have no name of their own to search — the old app
-    // resolves the search term against Customers first, then Transporters,
-    // and filters transports by whichever one matched. Ported as-is.
-    if (search) {
-      const matchingCustomers = await Customer.find({ isActive: true, _searchKeywords: search })
-        .select('_id')
-        .lean();
-      if (matchingCustomers.length > 0) {
-        filter.customerId = { $in: matchingCustomers.map((c) => c._id) };
-      } else {
-        const matchingTransporters = await Transporter.find({ isActive: true, _searchKeywords: search })
-          .select('_id')
-          .lean();
-        filter.transporterId =
-          matchingTransporters.length > 0 ? { $in: matchingTransporters.map((t) => t._id) } : null;
-      }
-    }
-
-    if (!isAdmin && branchId) filter.branchId = branchId;
-    // Explicit filter dropdown takes priority over whatever the search box
-    // may have derived for transporterId above.
-    if (transporterId) filter.transporterId = transporterId;
-    if (dateFrom || dateTo) {
-      filter.date = {
-        ...(dateFrom ? { $gte: dateFrom } : {}),
-        ...(dateTo ? { $lte: dateTo } : {}),
-      };
-    }
-
+    const filter = await buildListFilter(req);
     const { records, totalRecords, totalPages, currentPage } = await paginate(
       Transport,
       filter,
@@ -134,8 +142,9 @@ router.get(
 
 router.get(
   '/download',
-  asyncHandler(async (_req, res) => {
-    const docs = await Transport.find({ isActive: true }).sort({ date: -1 }).lean();
+  asyncHandler(async (req, res) => {
+    const filter = await buildListFilter(req);
+    const docs = await Transport.find(filter).sort({ date: -1 }).lean();
     const customerIds = [...new Set(docs.map((d) => d.customerId))];
     const transporterIds = [...new Set(docs.map((d) => d.transporterId))];
     const [customers, transporters] = await Promise.all([

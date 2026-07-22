@@ -47,23 +47,32 @@ router.post(
   })
 );
 
+// Shared by the list and download endpoints so a filter can never drift
+// between what's shown on screen and what gets exported — one place builds
+// the Mongo filter from the request's query params, both routes call it.
+const buildListFilter = (req: { query: Record<string, unknown> }) => {
+  const search = (req.query.search as string | undefined)?.trim().toLowerCase();
+  const isAdmin = req.query.admin === 'true';
+  const branchId = req.query.branchId as string | undefined;
+
+  const filter: Record<string, unknown> = { isActive: true };
+  // Matches by name (via the prefix-keyword index) OR by Customer ID
+  // (e.g. "NS-137" or just "137") — searching by ID wasn't possible before.
+  if (search) {
+    filter.$or = [{ _searchKeywords: search }, { customerId: { $regex: search, $options: 'i' } }];
+  }
+  if (!isAdmin && branchId) filter.branchId = branchId;
+  return filter;
+};
+
 router.get(
   '/',
   asyncHandler(async (req, res) => {
     const page = Number(req.query.page ?? 1);
     const size = Number(req.query.size ?? 10);
-    const search = (req.query.search as string | undefined)?.trim().toLowerCase();
-    const isAdmin = req.query.admin === 'true';
-    const branchId = req.query.branchId as string | undefined;
+    const search = (req.query.search as string | undefined)?.trim();
 
-    const filter: Record<string, unknown> = { isActive: true };
-    // Matches by name (via the prefix-keyword index) OR by Customer ID
-    // (e.g. "NS-137" or just "137") — searching by ID wasn't possible before.
-    if (search) {
-      filter.$or = [{ _searchKeywords: search }, { customerId: { $regex: search, $options: 'i' } }];
-    }
-    if (!isAdmin && branchId) filter.branchId = branchId;
-
+    const filter = buildListFilter(req);
     // Matches the old app exactly: searching sorts alphabetically, the
     // plain list sorts by most-recently-updated first.
     const sort: Record<string, 1 | -1> = search ? { _customerName: 1 } : { updatedAt: -1 };
@@ -93,8 +102,9 @@ router.get(
 
 router.get(
   '/download',
-  asyncHandler(async (_req, res) => {
-    const docs = await Customer.find({ isActive: true }).sort({ customerName: 1 }).lean();
+  asyncHandler(async (req, res) => {
+    const filter = buildListFilter(req);
+    const docs = await Customer.find(filter).sort({ customerName: 1 }).lean();
     await sendExcel(
       res,
       'Customers Report',

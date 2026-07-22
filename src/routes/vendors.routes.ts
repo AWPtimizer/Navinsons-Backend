@@ -35,16 +35,23 @@ router.post(
   })
 );
 
+// Shared by the list and download endpoints so a filter can never drift
+// between what's shown on screen and what gets exported.
+const buildListFilter = (req: { query: Record<string, unknown> }) => {
+  const search = (req.query.search as string | undefined)?.trim().toLowerCase();
+  const filter: Record<string, unknown> = { isActive: true };
+  if (search) filter._searchKeywords = search;
+  return filter;
+};
+
 router.get(
   '/',
   asyncHandler(async (req, res) => {
     const page = Number(req.query.page ?? 1);
     const size = Number(req.query.size ?? 10);
-    const search = (req.query.search as string | undefined)?.trim().toLowerCase();
+    const search = (req.query.search as string | undefined)?.trim();
 
-    const filter: Record<string, unknown> = { isActive: true };
-    if (search) filter._searchKeywords = search;
-
+    const filter = buildListFilter(req);
     // Matches the old app: searching sorts alphabetically, the plain list
     // sorts by most-recently-updated first.
     const sort: Record<string, 1 | -1> = search ? { _vendorName: 1 } : { updatedAt: -1 };
@@ -65,8 +72,9 @@ router.get(
 
 router.get(
   '/download',
-  asyncHandler(async (_req, res) => {
-    const docs = await Vendor.find({ isActive: true }).sort({ vendorName: 1 }).lean();
+  asyncHandler(async (req, res) => {
+    const filter = buildListFilter(req);
+    const docs = await Vendor.find(filter).sort({ vendorName: 1 }).lean();
     await sendExcel(
       res,
       'Vendors Report',
