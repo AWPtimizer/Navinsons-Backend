@@ -31,41 +31,49 @@ router.post(
   })
 );
 
+// Shared by the list and download endpoints so a filter can never drift
+// between what's shown on screen and what gets exported.
+const buildListFilter = async (req: { query: Record<string, unknown> }) => {
+  const isAdmin = req.query.admin === 'true';
+  const branchId = req.query.branchId as string | undefined;
+  const search = (req.query.search as string | undefined)?.trim().toLowerCase();
+  const dateFrom = req.query.dateFrom as string | undefined;
+  const dateTo = req.query.dateTo as string | undefined;
+  const transporterId = req.query.transporterId as string | undefined;
+
+  const filter: Record<string, unknown> = { isActive: true };
+
+  // Search by Vendor name OR Transporter name (the old app never had this
+  // at all — added per request, not a parity fix).
+  if (search) {
+    const [matchingVendors, matchingTransporters] = await Promise.all([
+      Vendor.find({ isActive: true, _searchKeywords: search }).select('_id').lean(),
+      Transporter.find({ isActive: true, _searchKeywords: search }).select('_id').lean(),
+    ]);
+    const vendorIds = matchingVendors.map((v) => v._id);
+    const transporterIds = matchingTransporters.map((t) => t._id);
+    filter.$or = [{ vendorId: { $in: vendorIds } }, { transporterId: { $in: transporterIds } }];
+  }
+
+  if (!isAdmin && branchId) filter.branchId = branchId;
+  if (transporterId) filter.transporterId = transporterId;
+  if (dateFrom || dateTo) {
+    filter.date = {
+      ...(dateFrom ? { $gte: dateFrom } : {}),
+      ...(dateTo ? { $lte: dateTo } : {}),
+    };
+  }
+
+  return filter;
+};
+
 router.get(
   '/',
   asyncHandler(async (req, res) => {
     const page = Number(req.query.page ?? 1);
     const size = Number(req.query.size ?? 10);
-    const isAdmin = req.query.admin === 'true';
-    const branchId = req.query.branchId as string | undefined;
-    const search = (req.query.search as string | undefined)?.trim().toLowerCase();
-    const dateFrom = req.query.dateFrom as string | undefined;
-    const dateTo = req.query.dateTo as string | undefined;
-    const transporterId = req.query.transporterId as string | undefined;
 
-    const filter: Record<string, unknown> = { isActive: true };
-
-    // New: search by Vendor name OR Transporter name (the old app never had
-    // this at all — added per request, not a parity fix).
-    if (search) {
-      const [matchingVendors, matchingTransporters] = await Promise.all([
-        Vendor.find({ isActive: true, _searchKeywords: search }).select('_id').lean(),
-        Transporter.find({ isActive: true, _searchKeywords: search }).select('_id').lean(),
-      ]);
-      const vendorIds = matchingVendors.map((v) => v._id);
-      const transporterIds = matchingTransporters.map((t) => t._id);
-      filter.$or = [{ vendorId: { $in: vendorIds } }, { transporterId: { $in: transporterIds } }];
-    }
-
-    if (!isAdmin && branchId) filter.branchId = branchId;
-    if (transporterId) filter.transporterId = transporterId;
-    if (dateFrom || dateTo) {
-      filter.date = {
-        ...(dateFrom ? { $gte: dateFrom } : {}),
-        ...(dateTo ? { $lte: dateTo } : {}),
-      };
-    }
-
+    const filter = await buildListFilter(req);
     const { records, totalRecords, totalPages, currentPage } = await paginate(
       Inward,
       filter,
@@ -98,8 +106,9 @@ router.get(
 
 router.get(
   '/download',
-  asyncHandler(async (_req, res) => {
-    const docs = await Inward.find({ isActive: true }).sort({ createdAt: -1 }).lean();
+  asyncHandler(async (req, res) => {
+    const filter = await buildListFilter(req);
+    const docs = await Inward.find(filter).sort({ createdAt: -1 }).lean();
     const vendorIds = [...new Set(docs.map((d) => d.vendorId))];
     const transporterIds = [...new Set(docs.map((d) => d.transporterId))];
     const [vendors, transporters] = await Promise.all([

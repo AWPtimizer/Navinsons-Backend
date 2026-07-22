@@ -46,46 +46,54 @@ router.post(
   })
 );
 
+// Shared by the list and download endpoints so a filter can never drift
+// between what's shown on screen and what gets exported.
+const buildListFilter = async (req: { query: Record<string, unknown> }) => {
+  const search = (req.query.search as string | undefined)?.trim().toLowerCase();
+  const isAdmin = req.query.admin === 'true';
+  const branchId = req.query.branchId as string | undefined;
+  const dateFrom = req.query.dateFrom as string | undefined;
+  const dateTo = req.query.dateTo as string | undefined;
+  const transporterId = req.query.transporterId as string | undefined;
+
+  const filter: Record<string, unknown> = { isActive: true };
+
+  // The old app resolves the search term against Customers first (same
+  // pattern as Outwards), falling back to a challan-number match only if
+  // no customer matched.
+  if (search) {
+    const matchingCustomers = await Customer.find({ isActive: true, _searchKeywords: search })
+      .select('_id')
+      .lean();
+    if (matchingCustomers.length > 0) {
+      filter.customerId = { $in: matchingCustomers.map((c) => c._id) };
+    } else {
+      filter._challanKeywords = search;
+    }
+  }
+
+  if (!isAdmin && branchId) filter.branchId = branchId;
+  if (transporterId) filter.transporterId = transporterId;
+  // date is stored as a plain 'YYYY-MM-DD' string, so lexicographic
+  // comparison already matches chronological order.
+  if (dateFrom || dateTo) {
+    filter.date = {
+      ...(dateFrom ? { $gte: dateFrom } : {}),
+      ...(dateTo ? { $lte: dateTo } : {}),
+    };
+  }
+
+  return filter;
+};
+
 router.get(
   '/',
   asyncHandler(async (req, res) => {
     const page = Number(req.query.page ?? 1);
     const size = Number(req.query.size ?? 10);
-    const search = (req.query.search as string | undefined)?.trim().toLowerCase();
-    const isAdmin = req.query.admin === 'true';
-    const branchId = req.query.branchId as string | undefined;
-    const dateFrom = req.query.dateFrom as string | undefined;
-    const dateTo = req.query.dateTo as string | undefined;
-    const transporterId = req.query.transporterId as string | undefined;
+    const search = (req.query.search as string | undefined)?.trim();
 
-    const filter: Record<string, unknown> = { isActive: true };
-
-    // Was only ever matching against the challan number — the old app
-    // actually resolves the search term against Customers first (same
-    // pattern as Outwards), falling back to a challan-number match only if
-    // no customer matched. Fixed to match.
-    if (search) {
-      const matchingCustomers = await Customer.find({ isActive: true, _searchKeywords: search })
-        .select('_id')
-        .lean();
-      if (matchingCustomers.length > 0) {
-        filter.customerId = { $in: matchingCustomers.map((c) => c._id) };
-      } else {
-        filter._challanKeywords = search;
-      }
-    }
-
-    if (!isAdmin && branchId) filter.branchId = branchId;
-    if (transporterId) filter.transporterId = transporterId;
-    // date is stored as a plain 'YYYY-MM-DD' string, so lexicographic
-    // comparison already matches chronological order.
-    if (dateFrom || dateTo) {
-      filter.date = {
-        ...(dateFrom ? { $gte: dateFrom } : {}),
-        ...(dateTo ? { $lte: dateTo } : {}),
-      };
-    }
-
+    const filter = await buildListFilter(req);
     // Matches the old app: searching sorts by challan number, the plain
     // list sorts by most-recently-created first.
     const sort: Record<string, 1 | -1> = search ? { challanNo: 1 } : { createdAt: -1 };
@@ -140,8 +148,9 @@ router.get(
 
 router.get(
   '/download',
-  asyncHandler(async (_req, res) => {
-    const docs = await Challan.find({ isActive: true }).sort({ createdAt: -1 }).lean();
+  asyncHandler(async (req, res) => {
+    const filter = await buildListFilter(req);
+    const docs = await Challan.find(filter).sort({ createdAt: -1 }).lean();
     const customerIds = [...new Set(docs.map((d) => d.customerId))];
     const customers = await Customer.find({ _id: { $in: customerIds } }).lean();
     const customerMap = new Map(customers.map((c) => [c._id, c]));

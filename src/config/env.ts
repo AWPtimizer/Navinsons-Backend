@@ -23,9 +23,15 @@ export const env = {
   cloudinaryApiKey: process.env.CLOUDINARY_API_KEY ?? '',
   cloudinaryApiSecret: process.env.CLOUDINARY_API_SECRET ?? '',
   googlePlacesApiKey: process.env.GOOGLE_PLACES_API_KEY ?? '',
+  // Shared secret the external daily cron pinger must present (as a header,
+  // not a query param, so it never ends up in access logs) to call the
+  // ledger-reminders trigger endpoint — that endpoint has no logged-in user
+  // to authenticate against, so it can't use the normal requireAuth cookie.
+  cronSecret: process.env.CRON_SECRET ?? '',
 };
 
 export const assertRuntimeEnv = () => {
   required('MONGODB_URI');
   required('JWT_SECRET');
+  required('CRON_SECRET');
 };

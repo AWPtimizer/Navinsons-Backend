@@ -3,6 +3,7 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { env } from './config/env.js';
 import { requireAuth } from './middleware/auth.js';
+import { requireCronSecret } from './middleware/requireCronSecret.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 import authRoutes from './routes/auth.routes.js';
@@ -15,6 +16,9 @@ import transportsRoutes from './routes/transports.routes.js';
 import whatsappWebhookRoutes from './routes/whatsappWebhook.routes.js';
 import uploadsRoutes from './routes/uploads.routes.js';
 import geocodeRoutes from './routes/geocode.routes.js';
+import ledgerEntriesRoutes from './routes/ledgerEntries.routes.js';
+import bankAccountsRoutes from './routes/bankAccounts.routes.js';
+import ledgerRemindersRoutes from './routes/ledgerReminders.routes.js';
 
 export const createApp = () => {
   const app = express();
@@ -32,6 +36,11 @@ export const createApp = () => {
   // of /api/transports.
   app.use('/api/auth', authRoutes);
   app.use('/api/transports/webhook/whatsapp', whatsappWebhookRoutes);
+  // The daily ledger-reminders cron trigger is the third deliberately
+  // unprotected surface — there's no logged-in user for an external pinger
+  // to authenticate as, so it's guarded by a shared secret instead (see
+  // requireCronSecret), not requireAuth.
+  app.use('/api/cron/ledger-reminders', requireCronSecret, ledgerRemindersRoutes);
 
   // Everything else requires a valid session — this is the check the OLD
   // backend had commented out. Here it's enforced centrally, once, for every
@@ -44,6 +53,8 @@ export const createApp = () => {
   app.use('/api/transports', requireAuth, transportsRoutes);
   app.use('/api/uploads', requireAuth, uploadsRoutes);
   app.use('/api/geocode', requireAuth, geocodeRoutes);
+  app.use('/api/ledger-entries', requireAuth, ledgerEntriesRoutes);
+  app.use('/api/bank-accounts', requireAuth, bankAccountsRoutes);
 
   app.use(errorHandler);
 
